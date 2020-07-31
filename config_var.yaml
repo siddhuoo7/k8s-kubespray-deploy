@@ -1,0 +1,16 @@
+Rancher_dashboard: disabled
+Cluster_Logging: disabled
+Cluster_Monitoring: disabled
+Auto_scaling: enabled
+logging_ns: logging
+monitoring_ns: monitoring
+messaging_ns: kafka
+load_balancer_ns: load-balancer
+operations_ns: operations
+deployment_ns: deployment
+slack_token: xoxb-1075050838129-1068657729780-eqo8RLuSRy8jdwMq8GNtyRBW
+slack_channel: "#random"
+Loadbalancer_ip_range: 172.27.11.230-172.27.11.240
+elk_replicas: 1
+# Choose network plugin (calico or weave)
+kube_network_plugin: flannel

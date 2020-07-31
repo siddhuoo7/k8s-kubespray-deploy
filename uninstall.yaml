@@ -1,0 +1,39 @@
+---
+- hosts: all
+  tasks:
+  - name: Removing docker daemon file
+    shell: rm -rf /etc/docker/daemon.json
+  - name: Reset kubernetes
+    shell: kubeadm reset -f 
+    ignore_errors: yes
+  - name: Stop Disable kubernetes
+    shell: |
+     systemctl disable kubelet
+     systemctl stop kubelet
+    ignore_errors: yes
+  - name: Remove kubernetes
+    shell: yum remove kubeadm kubectl kubelet kubernetes-cni kube* -y 
+    ignore_errors: yes
+  - name: Remove related s/w & files
+    shell: |
+     yum autoremove -y
+     rm -rf ~/.kube
+    ignore_errors: yes
+  - name: Resetting iptables in master-nodes
+    shell: |
+     rm -rf /etc/cni/net.d
+     sudo iptables -t nat -F
+     sudo iptables -t mangle -F
+     sudo iptables -F
+     sudo iptables -X
+  - name: Removing docker from all nodes
+    shell: |
+     docker system prune -f
+     docker network prune -f
+     docker stop $(docker ps -a -q)
+     docker rm $(docker ps -a -q) -f
+     docker rmi $(docker images -a -q) -f
+     yum remove docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine -y
+     sudo yum remove docker-ce docker-ce-cli containerd.io -y
+     sudo rm -rf /var/lib/docker
+    ignore_errors: yes

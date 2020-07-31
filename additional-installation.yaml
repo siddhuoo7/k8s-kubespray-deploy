@@ -1,0 +1,163 @@
+---
+- hosts: kube-master[0]
+  tasks:
+  - name:  installing helm
+    shell: |
+     curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+     chmod 700 get_helm.sh
+     ./get_helm.sh
+    ignore_errors: yes
+  - name: Include vars
+    include_vars: "config_var.yaml"
+  - name: create name space load_balancer
+    shell: |
+      kubectl create ns {{ load_balancer_ns }}
+    ignore_errors: yes
+  - name: create name space operations
+    shell: |
+      kubectl create ns {{ operations_ns }}
+    ignore_errors: yes
+  - name: create name logging
+    shell: |
+      kubectl create ns {{ logging_ns }}
+    ignore_errors: yes
+  - name: create name space monitoring
+    shell: |
+      kubectl create ns {{ monitoring_ns }}
+    ignore_errors: yes
+  - name: create name space messaging
+    shell: |
+      kubectl create ns {{ messaging_ns }}
+    ignore_errors: yes
+  - name: Deploying Rancher in docker
+    shell: docker run --name rancher --restart=always -d -p 7000:80 -p 7010:443 -v rancher-data:/var/lib/rancher rancher/rancher:v2.3.5
+    ignore_errors: yes
+    when:
+      - Rancher_dashboard == "enabled"
+- hosts: all
+  tasks:
+    - name: Logging into docker nexus repository
+      shell: docker login -u admin -p Ecssupport09 192.168.75.4:8082
+    - name: "install nfs utils"
+      shell: yum install nfs-utils -y
+- 
+  hosts: kube-master[0]
+  tasks:
+    - 
+      name: "Install Docker-Compose"
+      shell: |
+          curl -L "https://github.com/docker/compose/releases/download/1.25.4/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+    - 
+      name: "install MetalLB Load Balancer"
+      shell: |
+          sed -i "s|namespace: load-balancer|namespace: {{ load_balancer_ns }}|g" /root/database/load-balancer/metallb.yaml
+          kubectl create -f /root/database/load-balancer/metallb.yaml
+          kubectl create secret generic -n {{ load_balancer_ns }} memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            namespace: {{ load_balancer_ns }}
+            name: config
+          data:
+            config: |
+              address-pools:
+              - name: default
+                protocol: layer2
+                addresses:
+                - {{ Loadbalancer_ip_range }}
+          EOF
+      ignore_errors: yes
+    - name: "Master ip address"
+      debug:
+        msg: "{{ ansible_eth0.ipv4.address }}"
+    - 
+      name: "implementing nfs client provisioning"
+      shell: |
+          mkdir /srv/nfs/kubedata -p
+          chown nobody: /srv/nfs/kubedata
+          sudo systemctl enable nfs-server
+          sudo systemctl start nfs-server
+          cat > /etc/exports << EOF
+          /srv/nfs/kubedata   *(rw,sync,no_subtree_check,no_root_squash,no_all_squash,insecure)
+          EOF
+          exportfs -rav
+          helm repo add stable https://kubernetes-charts.storage.googleapis.com
+          helm repo update
+          #helm install nfs-client-provisioner stable/nfs-client-provisioner --set nfs.server=172.27.11.121 --set nfs.path=/srv/nfs/kubedata --set storageClass.defaultClass=true --namespace {{ operations_ns }}
+          helm install nfs-client-provisioner stable/nfs-client-provisioner --set nfs.server={{ ansible_eth0.ipv4.address }} --set nfs.path=/srv/nfs/kubedata --set storageClass.defaultClass=true --namespace {{ operations_ns }}
+          kubectl wait --for=condition=Ready pods --all -n {{ operations_ns }} --timeout=300s
+          kubectl apply -f /root/database/logging/logging-pvc.yaml
+      ignore_errors: yes
+    - 
+      name: "Deploying elk in Kubernetes"
+      shell: |
+          helm repo add elastic https://helm.elastic.co
+          helm install  elasticsearch elastic/elasticsearch --set replicas={{ elk_replicas }} -n {{ logging_ns }}
+          kubectl wait --for=condition=Ready pods --all -n {{ logging_ns }} --timeout=60s
+          helm install  kibana elastic/kibana --set service.type=LoadBalancer -n {{ logging_ns }}
+          kubectl label nodes master-node dedicated=master
+      ignore_errors: yes
+      when: 
+        - Cluster_Logging == "enabled"      
+    - 
+      name: "Deploying the elastic logShipper"
+      shell: |
+          cd /root/database/logging/fluent-bit
+          kubectl apply -f .
+          sed -i "s|namespace: logging|namespace: {{ logging_ns }}|g" /root/database/logging/filebeat.yml
+          kubectl wait --for=condition=Ready pods --all -n {{ logging_ns }} --timeout=60s
+          kubectl create -f /root/database/logging/filebeat.yml
+      ignore_errors: yes
+      when: 
+        - Cluster_Logging == "enabled" 
+    - 
+      name: "Deploying Prometheus and Grafana"
+      shell: |
+          helm install grafana stable/grafana --values /root/database/monitoring/grafana.value -n {{ monitoring_ns }}
+          helm install prometheus stable/prometheus --values  /root/database/monitoring/prometheus.value -n {{ monitoring_ns }}
+      when: 
+        - Cluster_Monitoring == "enabled"       
+    - 
+      name: "Deploying Kubernetes Event Exporter"
+      shell: |
+          sed -i "s|slack_token|{{ slack_token }}|g" /root/database/monitoring/eventExporter/01-config.yaml
+          sed -i "s|slack_channel|{{ slack_channel }}|g" /root/database/monitoring/eventExporter/01-config.yaml
+          kubectl create -f /root/database/monitoring/eventExporter
+      when: 
+        - Cluster_Monitoring == "enabled"   
+    - name:  installing metrics-server
+      shell: |
+          helm install metrics-server stable/metrics-server --namespace {{ operations_ns }} --values /root/database/operations/metrics-server.values
+      ignore_errors: yes
+    - name: "installing pod auto scaler"
+      shell: |
+          kubectl apply -f /root/database/hpa
+      when: 
+        - Auto_scaling == "enabled"         
+    - name: "Install WeaveScope"
+      shell: |
+          sed -i "s|namespace: monitoring|namespace: {{ monitoring_ns }}|g" /root/database/monitoring/weave.yaml
+          kubectl apply -f /root/database/monitoring/weave.yaml
+      when: 
+        - Cluster_Monitoring == "enabled"   
+    - name: "Deploying database"
+      shell: |
+          kubectl create ns mongo
+          kubectl apply -f /root/database/database/mongodb-workload.yaml -n mongo
+          kubectl apply -f /root/database/database/mongodbDnsMap -f /root/database/database/pgadmin-workload.yaml -f /root/database/database/postgres-workload.yaml
+    - name: "Deploying kafka"
+      shell: |
+          #helm repo add confluentinc https://confluentinc.github.io/cp-helm-charts/
+          #helm repo update
+          #helm install kafka confluentinc/cp-helm-charts -f /root/value.yaml -n {{ messaging_ns }}
+          kubectl apply -f 'https://strimzi.io/install/latest?namespace=kafka' -n kafka
+          kubectl wait --for=condition=Ready pods --all -n {{ messaging_ns }}
+          kubectl apply -f /root/database/messaging/kafka-persistent-2.yaml -n kafka 
+          kubectl apply -f /root/database/messaging/kafkaMapDns.yml
+    - name: "Installing Kong API Gateway"
+      shell: |
+          kubectl create -f /root/database/load-balancer/kong.yaml
+          kubectl wait --for=condition=Ready pods --all -n kong
+          kubectl patch -n kong svc kong-proxy --type='json' -p '[{"op":"replace","path":"/spec/loadBalancerIP","value":"172.27.11.233"}]' 

@@ -1,0 +1,61 @@
+---
+- hosts: all
+  tasks:
+  - name: Install prerequisites
+    shell: yum install epel-release -y
+  - name: Yum Update
+    shell: yum update -y --skip-broken
+  - name: Disabling SElinux
+    shell: |
+     setenforce 0
+     sed -i --follow-symlinks 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/sysconfig/
+    ignore_errors: yes
+  - name: Enabling Bridge Firewall Rule
+    shell: |
+     #systemctl enable firewalld
+     #systemctl start firewalld
+     modprobe br_netfilter
+     firewall-cmd --add-masquerade --permanent
+     firewall-cmd --reload
+     #echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
+    ignore_errors: yes
+  - name: Enable the usage of iptables
+    shell: |
+     sudo bash -c 'echo "net.bridge.bridge-nf-call-ip6tables = 1" > /etc/sysctl.d/k8s.conf'
+     sudo bash -c 'echo "net.bridge.bridge-nf-call-iptables = 1" >> /etc/sysctl.d/k8s.conf'
+     sudo sysctl --system
+    ignore_errors: yes
+  - name: Disabling Swap on all nodes
+    shell: |
+     sudo sed -i '/swap/d' /etc/fstab
+     swapoff -a
+    ignore_errors: yes
+- hosts: kube-master
+  tasks:
+  - name: Enable firewall port in Master node
+    shell: |
+      firewall-cmd --zone=public --permanent --add-port={6443,2379,2380,10250,10251,10252}/tcp
+      firewall-cmd --reload
+    ignore_errors: yes
+- hosts: kube-node
+  tasks:
+  - name: Enable firewall port in Worker node
+    shell: |      
+      firewall-cmd --zone=public --permanent --add-port={10250,30000-32767}/tcp
+      firewall-cmd --reload
+    ignore_errors: yes
+- hosts: all
+  tasks:
+  - name: Disable firewalld
+    shell: |
+     systemctl disable firewalld
+     systemctl stop firewalld
+  - name: Create docker daemon file
+    copy: src=daemon.json dest=/etc/docker/daemon.json
+  - name: Reloading docker daemon
+    shell: |
+     sudo systemctl daemon-reload
+  - name: Reboot the machine with all defaults
+    reboot:
+      reboot_timeout: 3600
+

@@ -1,0 +1,40 @@
+all:
+  hosts:
+    node1:
+      ansible_host: 172.27.11.81
+      ip: 172.27.11.81
+      access_ip: 172.27.11.81
+    node2:
+      ansible_host: 172.27.11.82
+      ip: 172.27.11.82
+      access_ip: 172.27.11.82
+    node3:
+      ansible_host: 172.27.11.83
+      ip: 172.27.11.83
+      access_ip: 172.27.11.83
+    node4:
+      ansible_host: 172.27.11.84
+      ip: 172.27.11.84
+      access_ip: 172.27.11.84
+  children:
+    kube-master:
+      hosts:
+        node1:
+        node2:
+    kube-node:
+      hosts:
+        node1:
+        node2:
+        node3:
+        node4:
+    etcd:
+      hosts:
+        node1:
+        node2:
+        node3:
+    k8s-cluster:
+      children:
+        kube-master:
+        kube-node:
+    calico-rr:
+      hosts: {}

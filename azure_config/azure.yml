@@ -1,0 +1,36 @@
+## When azure is used, you need to also set the following variables.
+## see docs/azure.md for details on how to get these values
+
+azure_tenant_id: c19fbde0-52bd-4ac8-ab78-873e8a357611
+azure_subscription_id: 827eb3d1-ea6d-42b1-a791-4a054dbb7ffc
+azure_aad_client_id: cfb2dcf0-6d84-4214-a522-d2768cfa1aa9
+azure_aad_client_secret: BH.3..9Cxc_1xHx0JsCq8nBumY_QpFQarX
+azure_resource_group: ecsondemo
+azure_location: westus
+azure_subnet_name: minion-subnet
+azure_security_group_name: secgroup
+azure_vnet_name: KubeVNET
+azure_vnet_resource_group: ecsondemo
+azure_route_table_name: routetable
+# supported values are 'standard' or 'vmss'
+azure_vmtype: standard
+
+## Azure Disk CSI credentials and parameters
+## see docs/azure-csi.md for details on how to get these values
+
+# azure_csi_tenant_id:
+# azure_csi_subscription_id:
+# azure_csi_aad_client_id:
+# azure_csi_aad_client_secret:
+# azure_csi_location:
+# azure_csi_resource_group:
+# azure_csi_vnet_name:
+# azure_csi_vnet_resource_group:
+# azure_csi_subnet_name:
+# azure_csi_security_group_name:
+# azure_csi_use_instance_metadata:
+
+## To enable Azure Disk CSI, uncomment below
+# azure_csi_enabled: true
+# azure_csi_controller_replicas: 1
+# azure_csi_plugin_image_tag: latest
